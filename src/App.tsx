@@ -1,63 +1,134 @@
-import React, { useState } from 'react';
-import { IntelligenceProvider, useIntelligence } from './context/IntelligenceContext';
-import { Header } from './components/layout/Header';
-import { Sidebar } from './components/layout/Sidebar';
-import { ExecutiveDashboard } from './components/executive/ExecutiveDashboard';
-import { CommitteeDashboard } from './components/committee/CommitteeDashboard';
-import { DataSourcesCenter } from './components/datasources/DataSourcesCenter';
-import { KpiManagement } from './components/kpis/KpiManagement';
-import { ReportingComplianceView } from './components/compliance/ReportingComplianceView';
-import { CorrectiveActionsView } from './components/actions/CorrectiveActionsView';
-import { DrillDownModal } from './components/common/DrillDownModal';
-import { AddCommitteeModal } from './components/committee/AddCommitteeModal';
-import { OrganizationHealthIndexModal } from './components/executive/OrganizationHealthIndexModal';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Activity, AlertCircle, AlertTriangle, ArrowUpRight, BarChart3, CheckCircle2, ClipboardCheck, Database, Download, LayoutDashboard, Menu, Plus, Search, ShieldCheck, Target, Users, X, Clock3, RefreshCw, CircleHelp, FileText } from 'lucide-react';
 
-const DashboardContent: React.FC = () => {
-  const { activeTab } = useIntelligence();
-  const [isAddCommitteeOpen, setIsAddCommitteeOpen] = useState(false);
-  const [isOhiOpen, setIsOhiOpen] = useState(false);
-
-  return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col font-sans">
-      {/* Top Bar adhering strictly to Top Bar Contract */}
-      <Header />
-
-      <div className="flex-1 flex overflow-hidden">
-        {/* Responsive Sidebar Navigation */}
-        <Sidebar
-          onOpenAddCommittee={() => setIsAddCommitteeOpen(true)}
-          onOpenOhiModal={() => setIsOhiOpen(true)}
-        />
-
-        {/* Main Viewport Content */}
-        <main className="flex-1 overflow-y-auto bg-slate-900 pb-12">
-          {activeTab === 'executive' && <ExecutiveDashboard />}
-          {activeTab === 'committee' && <CommitteeDashboard />}
-          {activeTab === 'sources' && <DataSourcesCenter />}
-          {activeTab === 'kpis' && <KpiManagement />}
-          {activeTab === 'compliance' && <ReportingComplianceView />}
-          {activeTab === 'actions' && <CorrectiveActionsView />}
-        </main>
-      </div>
-
-      {/* Global Modals */}
-      <DrillDownModal />
-      <AddCommitteeModal
-        isOpen={isAddCommitteeOpen}
-        onClose={() => setIsAddCommitteeOpen(false)}
-      />
-      <OrganizationHealthIndexModal
-        isOpen={isOhiOpen}
-        onClose={() => setIsOhiOpen(false)}
-      />
-    </div>
-  );
+type Direction = 'higher' | 'lower';
+type Committee = { id: string; name: string; lead: string; members: number; color: string };
+type KPI = { id: string; committeeId: string; name: string; unit: string; target: number; direction: Direction; description: string };
+type Report = { id: string; committeeId: string; period: string; submittedAt: string; values: Record<string, number | null>; notes: string };
+type Issue = { id: string; committeeId: string; title: string; owner: string; dueDate: string; priority: 'High' | 'Medium' | 'Low'; status: 'Open' | 'In progress' | 'Resolved' };
+type Data = { committees: Committee[]; kpis: KPI[]; reports: Report[]; issues: Issue[] };
+const PERIODS = ['Week 41, 2026', 'Week 40, 2026', 'Week 39, 2026', 'October 2026'];
+const KEY = 'aliens-dashboard-reliable-v1';
+const DEMO: Data = {
+  committees: [
+    {id:'marketing',name:'Marketing',lead:'Marketing Lead',members:12,color:'#16845b'},
+    {id:'media',name:'Media',lead:'Media Lead',members:9,color:'#6477d8'},
+    {id:'pr',name:'Public Relations',lead:'PR Lead',members:8,color:'#d97742'},
+    {id:'ir',name:'International Relations',lead:'IR Lead',members:7,color:'#8b5fc7'},
+    {id:'planning',name:'Planning',lead:'Planning Lead',members:6,color:'#168e9c'},
+    {id:'data',name:'Data Analysis',lead:'Data Lead',members:5,color:'#64748b'},
+    {id:'secretary',name:'Secretary',lead:'Secretary Lead',members:4,color:'#c58a24'},
+    {id:'treasure',name:'Treasure',lead:'Treasurer',members:4,color:'#bb5869'}
+  ],
+  kpis: [
+    {id:'mkt-interactions',committeeId:'marketing',name:'Social interactions',unit:'interactions',target:5000,direction:'higher',description:'Meaningful interactions across approved social channels.'},
+    {id:'mkt-reach',committeeId:'marketing',name:'Content reach',unit:'accounts',target:25000,direction:'higher',description:'Unique accounts reached in the period.'},
+    {id:'mkt-posts',committeeId:'marketing',name:'Published content',unit:'posts',target:20,direction:'higher',description:'Approved content pieces published.'},
+    {id:'media-delivery',committeeId:'media',name:'On-time asset delivery',unit:'%',target:90,direction:'higher',description:'Share of assets delivered by deadline.'},
+    {id:'media-turnaround',committeeId:'media',name:'Average turnaround',unit:'hours',target:36,direction:'lower',description:'Average hours from brief to delivery.'},
+    {id:'pr-response',committeeId:'pr',name:'Response time',unit:'hours',target:8,direction:'lower',description:'Average response time for incoming requests.'},
+    {id:'pr-outreach',committeeId:'pr',name:'Qualified outreach',unit:'contacts',target:30,direction:'higher',description:'Relevant contacts approached with next step.'},
+    {id:'ir-partners',committeeId:'ir',name:'Active partnerships',unit:'partners',target:5,direction:'higher',description:'Partnerships with a confirmed activity.'},
+    {id:'planning-readiness',committeeId:'planning',name:'Milestone readiness',unit:'%',target:90,direction:'higher',description:'Milestones completed by checkpoint.'},
+    {id:'data-quality',committeeId:'data',name:'Data completeness',unit:'%',target:98,direction:'higher',description:'Required fields populated and validated.'},
+    {id:'secretary-filing',committeeId:'secretary',name:'Minutes filed on time',unit:'%',target:95,direction:'higher',description:'Minutes filed within agreed service window.'},
+    {id:'treasure-receipts',committeeId:'treasure',name:'Verified receipts',unit:'%',target:100,direction:'higher',description:'Transactions supported by a verified receipt.'}
+  ],
+  reports: [
+    {id:'r41m',committeeId:'marketing',period:PERIODS[0],submittedAt:'2026-10-12T18:00:00',values:{'mkt-interactions':4260,'mkt-reach':21800,'mkt-posts':18},notes:'Illustrative sample only.'},
+    {id:'r40m',committeeId:'marketing',period:PERIODS[1],submittedAt:'2026-10-05T18:00:00',values:{'mkt-interactions':4720,'mkt-reach':24200,'mkt-posts':20},notes:'Illustrative sample only.'},
+    {id:'r39m',committeeId:'marketing',period:PERIODS[2],submittedAt:'2026-09-28T18:00:00',values:{'mkt-interactions':3880,'mkt-reach':19500,'mkt-posts':16},notes:'Illustrative sample only.'},
+    {id:'r41media',committeeId:'media',period:PERIODS[0],submittedAt:'2026-10-12T16:00:00',values:{'media-delivery':82,'media-turnaround':42},notes:'Illustrative sample only.'},
+    {id:'r41pr',committeeId:'pr',period:PERIODS[0],submittedAt:'2026-10-12T15:00:00',values:{'pr-response':10.5,'pr-outreach':26},notes:'Illustrative sample only.'},
+    {id:'r41ir',committeeId:'ir',period:PERIODS[0],submittedAt:'2026-10-12T14:00:00',values:{'ir-partners':4},notes:'Illustrative sample only.'},
+    {id:'r41plan',committeeId:'planning',period:PERIODS[0],submittedAt:'2026-10-12T14:00:00',values:{'planning-readiness':88},notes:'Illustrative sample only.'},
+    {id:'r41data',committeeId:'data',period:PERIODS[0],submittedAt:'2026-10-12T13:00:00',values:{'data-quality':97},notes:'Illustrative sample only.'},
+    {id:'r41sec',committeeId:'secretary',period:PERIODS[0],submittedAt:'',values:{},notes:''},
+    {id:'r41treas',committeeId:'treasure',period:PERIODS[0],submittedAt:'2026-10-12T17:00:00',values:{'treasure-receipts':78},notes:'Illustrative sample only.'}
+  ],
+  issues: [
+    {id:'i1',committeeId:'marketing',title:'Interaction target below plan',owner:'Marketing Lead',dueDate:'2026-10-20',priority:'Medium',status:'Open'},
+    {id:'i2',committeeId:'treasure',title:'Receipt verification backlog',owner:'Treasurer',dueDate:'2026-10-18',priority:'High',status:'In progress'},
+    {id:'i3',committeeId:'media',title:'Asset turnaround above target',owner:'Media Lead',dueDate:'2026-10-21',priority:'Medium',status:'Open'}
+  ]
 };
+type Tab = 'overview'|'committees'|'performance'|'reports'|'actions'|'sources';
+const nfmt = (n:number) => new Intl.NumberFormat('en-US',{maximumFractionDigits:1}).format(n);
+const met = (v:number,k:KPI) => k.direction==='higher' ? v>=k.target : v<=k.target;
+const attainment = (v:number,k:KPI) => k.target<=0?0:(k.direction==='higher'?v/k.target:k.target/Math.max(v,.000001))*100;
 
 export default function App() {
-  return (
-    <IntelligenceProvider>
-      <DashboardContent />
-    </IntelligenceProvider>
-  );
+  const [data,setData] = useState<Data>(()=>{try{const raw=localStorage.getItem(KEY);return raw?JSON.parse(raw) as Data:DEMO}catch{return DEMO}});
+  const [tab,setTab] = useState<Tab>('overview');
+  const [period,setPeriod] = useState(PERIODS[0]);
+  const [filter,setFilter] = useState('all');
+  const [search,setSearch] = useState('');
+  const [navOpen,setNavOpen] = useState(false);
+  const [notice,setNotice] = useState('');
+  const [reportOpen,setReportOpen] = useState(false);
+  const [reportCommittee,setReportCommittee] = useState('marketing');
+  const [reportValues,setReportValues] = useState<Record<string,string>>({});
+  const [reportNotes,setReportNotes] = useState('');
+  const [committeeOpen,setCommitteeOpen] = useState(false);
+  const [newName,setNewName] = useState('');
+  const [newLead,setNewLead] = useState('');
+  const [newMembers,setNewMembers] = useState('1');
+  const [issueOpen,setIssueOpen] = useState(false);
+  const [issueTitle,setIssueTitle] = useState('');
+  const [issueOwner,setIssueOwner] = useState('');
+  const [issueDue,setIssueDue] = useState('2026-10-25');
+  const [issueCommittee,setIssueCommittee] = useState('marketing');
+  const [issuePriority,setIssuePriority] = useState<Issue['priority']>('Medium');
+  useEffect(()=>{try{localStorage.setItem(KEY,JSON.stringify(data))}catch{setNotice('Browser storage failed. Export a backup before continuing.')}},[data]);
+  const active = data.committees;
+  const periodReports = data.reports.filter(r=>r.period===period);
+  const reportFor = (id:string)=>periodReports.find(r=>r.committeeId===id);
+  const committeeKpis = (id:string)=>data.kpis.filter(k=>k.committeeId===id);
+  const valueFor = (k:KPI):number|null=>reportFor(k.committeeId)?.values[k.id] ?? null;
+  const reportComplete = (c:Committee)=>{const r=reportFor(c.id);const ks=committeeKpis(c.id);return !!r?.submittedAt&&ks.length>0&&ks.every(k=>r.values[k.id]!==null&&r.values[k.id]!==undefined)};
+  const completeCount = active.filter(reportComplete).length;
+  const partialCount = active.filter(c=>{const r=reportFor(c.id);return !!r?.submittedAt&&!reportComplete(c)}).length;
+  const missingCount = active.length-completeCount-partialCount;
+  const allValues = data.kpis.filter(k=>filter==='all'||k.committeeId===filter).map(k=>({k,v:valueFor(k)})).filter((x):x is {k:KPI;v:number}=>x.v!==null);
+  const onTarget = allValues.length?Math.round(allValues.filter(x=>met(x.v,x.k)).length/allValues.length*100):null;
+  const openIssues = data.issues.filter(i=>i.status!=='Resolved');
+  const overdue = openIssues.filter(i=>i.dueDate<new Date().toISOString().slice(0,10));
+  const committeesShown = active.filter(c=>(filter==='all'||c.id===filter)&&c.name.toLowerCase().includes(search.toLowerCase()));
+  const kpisShown = data.kpis.filter(k=>(filter==='all'||k.committeeId===filter)&&(k.name.toLowerCase().includes(search.toLowerCase())||(data.committees.find(c=>c.id===k.committeeId)?.name||'').toLowerCase().includes(search.toLowerCase())));
+  const change = (fn:(d:Data)=>Data)=>setData(d=>fn(d));
+  const exportBackup=()=>{const blob=new Blob([JSON.stringify({exportedAt:new Date().toISOString(),data},null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='aliens-dashboard-backup.json';a.click();URL.revokeObjectURL(url);setNotice('Backup exported as JSON.')};
+  const resetDemo=()=>{if(confirm('Restore demo data and discard local changes in this browser?')){setData(DEMO);setPeriod(PERIODS[0]);setFilter('all');setNotice('Demo data restored in this browser.')}};
+  const openReport=(id='marketing')=>{setReportCommittee(id);const r=reportFor(id);const vals:Record<string,string>={};committeeKpis(id).forEach(k=>{const v=r?.values[k.id];vals[k.id]=v===null||v===undefined?'':String(v)});setReportValues(vals);setReportNotes(r?.notes||'');setReportOpen(true)};
+  const saveReport=(e:React.FormEvent)=>{e.preventDefault();const ks=committeeKpis(reportCommittee);const vals:Record<string,number|null>={};for(const k of ks){const raw=(reportValues[k.id]||'').trim();if(raw!==''&&!Number.isFinite(Number(raw))){setNotice('Enter a valid number for '+k.name+'.');return}vals[k.id]=raw===''?null:Number(raw);if(vals[k.id]!==null&&vals[k.id]!<0){setNotice('KPI values cannot be negative.');return}}const report:Report={id:reportFor(reportCommittee)?.id||'report-'+Date.now(),committeeId:reportCommittee,period,submittedAt:new Date().toISOString(),values:vals,notes:reportNotes.trim()};change(d=>({...d,reports:[...d.reports.filter(r=>!(r.committeeId===reportCommittee&&r.period===period)),report]}));setReportOpen(false);setNotice('Saved locally only. No report was sent to a server or shared with other users.')};
+  const addCommittee=(e:React.FormEvent)=>{e.preventDefault();if(!newName.trim()||!newLead.trim())return;change(d=>({...d,committees:[...d.committees,{id:'committee-'+Date.now(),name:newName.trim(),lead:newLead.trim(),members:Math.max(0,Number(newMembers)||0),color:'#16845b'}]}));setNewName('');setNewLead('');setNewMembers('1');setCommitteeOpen(false);setNotice('Committee added in this browser. KPI definitions must be added to the data model before it can report metrics.')};
+  const addIssue=(e:React.FormEvent)=>{e.preventDefault();if(!issueTitle.trim()||!issueOwner.trim())return;change(d=>({...d,issues:[{id:'issue-'+Date.now(),committeeId:issueCommittee,title:issueTitle.trim(),owner:issueOwner.trim(),dueDate:issueDue,priority:issuePriority,status:'Open'},...d.issues]}));setIssueTitle('');setIssueOwner('');setIssueOpen(false);setNotice('Action added in this browser. No reminder was sent.')};
+  const nav:{id:Tab;label:string;icon:React.ReactNode}[]=[{id:'overview',label:'Overview',icon:<LayoutDashboard size={18}/>},{id:'committees',label:'Committees',icon:<Users size={18}/>},{id:'performance',label:'KPI performance',icon:<Target size={18}/>},{id:'reports',label:'Reporting',icon:<ClipboardCheck size={18}/>},{id:'actions',label:'Action tracker',icon:<AlertTriangle size={18}/>},{id:'sources',label:'Data & reliability',icon:<Database size={18}/>}];
+  return <div className="app-shell">
+    <aside className={'sidebar '+(navOpen?'sidebar-open':'')}><div className="brand"><div className="brand-mark">A</div><div><strong>ALIENS</strong><span>Performance hub</span></div><button className="icon-button mobile-close" onClick={()=>setNavOpen(false)} aria-label="Close menu"><X size={18}/></button></div><div className="nav-label">WORKSPACE</div><nav>{nav.map(x=><button key={x.id} className={'nav-item '+(tab===x.id?'active':'')} onClick={()=>{setTab(x.id);setNavOpen(false)}}>{x.icon}<span>{x.label}</span>{x.id==='actions'&&openIssues.length>0&&<b className="nav-count">{openIssues.length}</b>}</button>)}</nav><div className="sidebar-bottom"><div className="local-indicator"><span className="status-dot amber"/><div><b>Local workspace</b><small>Not shared across devices</small></div></div><button className="nav-item" onClick={exportBackup}><Download size={18}/><span>Export backup</span></button></div></aside>
+    {navOpen&&<button className="mobile-backdrop" aria-label="Close navigation" onClick={()=>setNavOpen(false)}/>}
+    <main className="main"><header className="topbar"><div className="topbar-left"><button className="icon-button mobile-menu" onClick={()=>setNavOpen(true)} aria-label="Open menu"><Menu size={20}/></button><div><div className="eyebrow">ALIENS · TEAM INTELLIGENCE</div><h1>{nav.find(x=>x.id===tab)?.label}</h1></div></div><div className="topbar-actions"><label className="period-control"><span>Reporting period</span><select value={period} onChange={e=>setPeriod(e.target.value)}>{PERIODS.map(p=><option key={p}>{p}</option>)}</select></label><button className="button button-primary" onClick={()=>openReport()}><Plus size={16}/> Log report</button></div></header>
+    <div className="notice-banner"><AlertCircle size={17}/><div><b>Prototype / demo workspace</b><span>Sample values are illustrative. Changes save only in this browser. No live spreadsheet sync, shared database, authentication, or outbound notifications are configured.</span></div></div>
+    {notice&&<div className="toast" role="status"><CheckCircle2 size={17}/><span>{notice}</span><button onClick={()=>setNotice('')} aria-label="Dismiss"><X size={15}/></button></div>}
+    <section className="page-content">
+    {tab==='overview'&&<><div className="page-intro"><div><h2>Team health at a glance</h2><p>Reporting coverage, target attainment, and the next issues to resolve.</p></div><button className="button button-secondary" onClick={exportBackup}><Download size={16}/> Export data</button></div>
+      <div className="metric-grid"><Metric icon={<Users size={18}/>} label="Active committees" value={String(active.length)} foot={active.reduce((s,c)=>s+c.members,0)+' registered members'} tone="green"/><Metric icon={<ClipboardCheck size={18}/>} label="Complete reports" value={active.length?Math.round(completeCount/active.length*100)+'%':'—'} foot={completeCount+' complete · '+partialCount+' partial · '+missingCount+' missing'} tone={completeCount===active.length?'green':'amber'}/><Metric icon={<Target size={18}/>} label="KPIs on target" value={onTarget===null?'—':onTarget+'%'} foot={allValues.length+' metrics with values · missing excluded'} tone={onTarget!==null&&onTarget>=80?'green':'amber'}/><Metric icon={<AlertTriangle size={18}/>} label="Open action items" value={String(openIssues.length)} foot={overdue.length+' overdue by due date'} tone={overdue.length?'red':'amber'}/></div>
+      <div className="content-grid"><div className="panel"><div className="panel-head"><div><h3>Committee reporting status</h3><p>Selected period: {period}</p></div><button className="text-button" onClick={()=>setTab('reports')}>View reports <ArrowUpRight size={15}/></button></div><div className="status-stack">{active.map(c=>{const r=reportFor(c.id);const ks=committeeKpis(c.id);const done=reportComplete(c);const partial=!!r?.submittedAt&&!done;const filled=ks.filter(k=>r?.values[k.id]!==null&&r?.values[k.id]!==undefined).length;return <div className="status-row" key={c.id}><span className="committee-avatar" style={{background:c.color}}>{c.name.slice(0,1)}</span><div className="status-name"><b>{c.name}</b><small>{filled}/{ks.length} KPI values</small></div><div className="status-meter"><span style={{width:(done?100:partial?60:0)+'%',background:done?'#16845b':partial?'#d79a24':'#d8dee5'}}/></div><Pill label={done?'Complete':partial?'Partial':'Missing'} tone={done?'green':partial?'amber':'gray'}/><button className="icon-button" onClick={()=>openReport(c.id)} aria-label={'Log report for '+c.name}><Plus size={16}/></button></div>})}</div><div className="panel-foot"><span><i className="legend-dot green"/> Complete</span><span><i className="legend-dot amber"/> Partial</span><span><i className="legend-dot gray"/> Missing</span></div></div>
+      <div className="panel"><div className="panel-head"><div><h3>Performance vs target</h3><p>Only metrics with reported values are shown.</p></div><button className="text-button" onClick={()=>setTab('performance')}>All KPIs <ArrowUpRight size={15}/></button></div><div className="bar-list">{allValues.slice(0,8).map(({k,v})=>{const a=attainment(v,k);const ok=met(v,k);return <div className="bar-item" key={k.id}><div className="bar-title"><span>{k.name}</span><b className={ok?'positive':'negative'}>{nfmt(v)} <small>{k.unit}</small></b></div><div className="bar-track"><span className={ok?'bar-good':'bar-warn'} style={{width:Math.min(a,100)+'%'}}/></div><div className="bar-meta"><span>Target: {nfmt(k.target)} {k.unit}</span><span>{ok?'Target met':'Target missed'}</span></div></div>})}{!allValues.length&&<Empty text="No KPI values reported for this period."/>}</div></div></div>
+      <div className="panel"><div className="panel-head"><div><h3>Priority actions</h3><p>Items that need ownership and follow-up.</p></div><button className="button button-secondary button-small" onClick={()=>setIssueOpen(true)}><Plus size={15}/> Add action</button></div><IssueTable issues={openIssues.slice(0,5)} committees={data.committees} onResolve={id=>change(d=>({...d,issues:d.issues.map(i=>i.id===id?{...i,status:'Resolved'}:i)}))}/></div></>}
+    {tab==='committees'&&<><div className="page-intro"><div><h2>Committee directory</h2><p>Review owners, team size, and reporting coverage.</p></div><button className="button button-primary" onClick={()=>setCommitteeOpen(true)}><Plus size={16}/> Add committee</button></div><div className="toolbar"><div className="searchbox"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search committees..."/></div><span className="muted">{committeesShown.length} committees</span></div><div className="committee-grid">{committeesShown.map(c=>{const r=reportFor(c.id);const ks=committeeKpis(c.id);const filled=ks.filter(k=>r?.values[k.id]!==null&&r?.values[k.id]!==undefined).length;return <div className="committee-card" key={c.id}><div className="committee-card-top"><span className="committee-avatar avatar-large" style={{background:c.color}}>{c.name.slice(0,1)}</span><div><h3>{c.name}</h3><p>{c.lead}</p></div><button className="icon-button" onClick={()=>openReport(c.id)} aria-label={'Log report for '+c.name}><FileText size={17}/></button></div><div className="committee-stats"><div><small>Members</small><b>{c.members}</b></div><div><small>KPIs</small><b>{ks.length}</b></div><div><small>Reported</small><b>{filled}/{ks.length}</b></div></div><div className="committee-card-foot"><Pill label={r?.submittedAt?(reportComplete(c)?'Complete':'Partial'):'No report'} tone={r?.submittedAt?(reportComplete(c)?'green':'amber'):'gray'}/><button className="text-button" onClick={()=>{setFilter(c.id);setTab('performance')}}>View KPIs <ArrowUpRight size={14}/></button></div></div>})}</div></>}
+    {tab==='performance'&&<><div className="page-intro"><div><h2>KPI performance registry</h2><p>Configured direction and target are applied consistently. Missing values are not treated as zero.</p></div><button className="button button-secondary" onClick={exportBackup}><Download size={16}/> Export backup</button></div><div className="toolbar"><div className="searchbox"><Search size={16}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search KPIs or committees..."/></div><select className="filter-select" value={filter} onChange={e=>setFilter(e.target.value)}><option value="all">All committees</option>{active.map(c=><option value={c.id} key={c.id}>{c.name}</option>)}</select><span className="muted">{kpisShown.length} metrics</span></div><div className="panel table-panel"><div className="table-scroll"><table><thead><tr><th>Metric</th><th>Committee</th><th>Actual</th><th>Target</th><th>Progress</th><th>Status</th><th>Direction</th></tr></thead><tbody>{kpisShown.map(k=>{const v=valueFor(k);const ok=v!==null&&met(v,k);const p=v===null?null:attainment(v,k);return <tr key={k.id}><td><b>{k.name}</b><small className="cell-sub">{k.description}</small></td><td>{data.committees.find(c=>c.id===k.committeeId)?.name||'Unknown'}</td><td>{v===null?<span className="muted">No data</span>:<b>{nfmt(v)} {k.unit}</b>}</td><td>{nfmt(k.target)} {k.unit}</td><td><div className="mini-progress"><span style={{width:Math.min(p||0,100)+'%',background:ok?'#16845b':'#d79a24'}}/></div><small>{p===null?'—':Math.round(p)+'% of target'}</small></td><td><Pill label={v===null?'Missing data':ok?'On target':'Target missed'} tone={v===null?'gray':ok?'green':'amber'}/></td><td>{k.direction==='higher'?'Higher is better':'Lower is better'}</td></tr>})}</tbody></table></div></div></>}
+    {tab==='reports'&&<><div className="page-intro"><div><h2>Reporting compliance</h2><p>Complete means a saved report with a value for every KPI assigned to that committee.</p></div><button className="button button-primary" onClick={()=>openReport()}><Plus size={16}/> Log report</button></div><div className="metric-grid metric-grid-three"><Metric icon={<CheckCircle2 size={18}/>} label="Complete" value={String(completeCount)} foot="All KPI values present" tone="green"/><Metric icon={<Clock3 size={18}/>} label="Partial" value={String(partialCount)} foot="Submitted with missing values" tone="amber"/><Metric icon={<AlertCircle size={18}/>} label="Missing" value={String(missingCount)} foot="No complete report recorded" tone="red"/></div><div className="panel table-panel"><div className="panel-head"><div><h3>Submission matrix</h3><p>{period}</p></div><span className="muted">Browser-local records</span></div><div className="table-scroll"><table><thead><tr><th>Committee</th><th>Required KPIs</th><th>Values reported</th><th>Submitted at</th><th>Status</th><th>Action</th></tr></thead><tbody>{active.map(c=>{const r=reportFor(c.id);const ks=committeeKpis(c.id);const filled=ks.filter(k=>r?.values[k.id]!==null&&r?.values[k.id]!==undefined).length;return <tr key={c.id}><td><b>{c.name}</b></td><td>{ks.length}</td><td>{filled}/{ks.length}</td><td>{r?.submittedAt?new Date(r.submittedAt).toLocaleString():'—'}</td><td><Pill label={reportComplete(c)?'Complete':r?.submittedAt?'Partial':'Missing'} tone={reportComplete(c)?'green':r?.submittedAt?'amber':'gray'}/></td><td><button className="text-button" onClick={()=>openReport(c.id)}>{r?.submittedAt?'Edit report':'Log report'} <ArrowUpRight size={14}/></button></td></tr>})}</tbody></table></div></div></>}
+    {tab==='actions'&&<><div className="page-intro"><div><h2>Action tracker</h2><p>Every action has an owner and due date; mark it resolved when complete.</p></div><button className="button button-primary" onClick={()=>setIssueOpen(true)}><Plus size={16}/> Add action</button></div><div className="metric-grid metric-grid-three"><Metric icon={<AlertTriangle size={18}/>} label="Open actions" value={String(openIssues.length)} foot="Not marked resolved" tone="amber"/><Metric icon={<Clock3 size={18}/>} label="Overdue" value={String(overdue.length)} foot="Past due date and still open" tone="red"/><Metric icon={<CheckCircle2 size={18}/>} label="Resolved" value={String(data.issues.filter(i=>i.status==='Resolved').length)} foot="Closed action items" tone="green"/></div><div className="panel table-panel"><IssueTable issues={data.issues} committees={data.committees} onResolve={id=>change(d=>({...d,issues:d.issues.map(i=>i.id===id?{...i,status:i.status==='Resolved'?'Open':'Resolved'}:i)}))}/></div></>}
+    {tab==='sources'&&<><div className="page-intro"><div><h2>Data & reliability</h2><p>Explicitly show what is and is not connected.</p></div><button className="button button-secondary" onClick={exportBackup}><Download size={16}/> Export backup</button></div><div className="reliability-grid"><Reliability icon={<Database size={21}/>} title="Storage" status="Browser only" tone="amber" text="Records are stored in localStorage in this browser profile. They are not shared between people or devices and are not backed up automatically."/><Reliability icon={<RefreshCw size={21}/>} title="External sync" status="Not connected" tone="gray" text="No Google Sheets, Forms, API, or scheduled import is configured. The app does not claim external data has synchronized."/><Reliability icon={<ShieldCheck size={21}/>} title="Authentication" status="Not configured" tone="gray" text="No user accounts, access controls, audit trail, or server-side validation. Do not store confidential information here."/></div><div className="panel"><div className="panel-head"><div><h3>Backup & demo controls</h3><p>Export a JSON backup before resetting local data.</p></div></div><div className="settings-actions"><button className="button button-secondary" onClick={exportBackup}><Download size={16}/> Download JSON backup</button><button className="button button-danger-outline" onClick={resetDemo}><RefreshCw size={16}/> Restore demo data</button></div><p className="helper-text">Restore replaces local changes for this dashboard in this browser only.</p></div><div className="panel"><div className="panel-head"><div><h3>Data quality guardrails</h3><p>Implemented in this prototype.</p></div></div><ul className="quality-list"><li><CheckCircle2 size={17}/> Missing KPI values remain missing; they are not converted to zero.</li><li><CheckCircle2 size={17}/> KPI attainment respects higher-is-better and lower-is-better.</li><li><CheckCircle2 size={17}/> Reports are stored by committee and reporting period.</li><li><CheckCircle2 size={17}/> Empty and non-numeric values are rejected or marked missing.</li><li><AlertCircle size={17}/> Shared multi-user consistency and live integrations require a backend.</li></ul></div></>}
+    </section><footer className="footer"><span>ALIENS Performance Hub</span><span>Prototype build · {new Date().getFullYear()}</span></footer></main>
+    {reportOpen&&<Modal title={'Report · '+(data.committees.find(c=>c.id===reportCommittee)?.name||'Committee')} close={()=>setReportOpen(false)}><form className="form-stack" onSubmit={saveReport}><div className="form-field"><label>Committee</label><select value={reportCommittee} onChange={e=>{const id=e.target.value;setReportCommittee(id);const r=reportFor(id);const vals:Record<string,string>={};committeeKpis(id).forEach(k=>{const v=r?.values[k.id];vals[k.id]=v===null||v===undefined?'':String(v)});setReportValues(vals);setReportNotes(r?.notes||'')}}>{active.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div><div className="form-field"><label>Period</label><input value={period} readOnly/></div>{committeeKpis(reportCommittee).map(k=><div className="form-field" key={k.id}><label>{k.name}<span>Target: {nfmt(k.target)} {k.unit} · {k.direction==='higher'?'higher is better':'lower is better'}</span></label><input type="number" min="0" step="any" value={reportValues[k.id]||''} onChange={e=>setReportValues(v=>({...v,[k.id]:e.target.value}))} placeholder={'Enter '+k.unit+'; leave blank if missing'}/></div>)}{!committeeKpis(reportCommittee).length&&<Empty text="No KPI definitions for this committee."/>}<div className="form-field"><label>Notes (optional)</label><textarea rows={3} value={reportNotes} onChange={e=>setReportNotes(e.target.value)} placeholder="Context or data-quality notes"/></div><div className="modal-note"><AlertCircle size={16}/> Saving affects this browser only. It does not notify anyone.</div><div className="modal-actions"><button type="button" className="button button-secondary" onClick={()=>setReportOpen(false)}>Cancel</button><button type="submit" className="button button-primary" disabled={!committeeKpis(reportCommittee).length}>Save local report</button></div></form></Modal>}
+    {committeeOpen&&<Modal title="Add committee" close={()=>setCommitteeOpen(false)}><form className="form-stack" onSubmit={addCommittee}><div className="form-field"><label>Committee name</label><input required value={newName} onChange={e=>setNewName(e.target.value)} placeholder="e.g. Charity"/></div><div className="form-field"><label>Committee lead</label><input required value={newLead} onChange={e=>setNewLead(e.target.value)} placeholder="Role or name"/></div><div className="form-field"><label>Member count</label><input required type="number" min="0" value={newMembers} onChange={e=>setNewMembers(e.target.value)}/></div><div className="modal-note"><AlertCircle size={16}/> Committee is saved locally. KPI definitions must be configured before it can submit metrics.</div><div className="modal-actions"><button type="button" className="button button-secondary" onClick={()=>setCommitteeOpen(false)}>Cancel</button><button type="submit" className="button button-primary">Add committee</button></div></form></Modal>}
+    {issueOpen&&<Modal title="Add action item" close={()=>setIssueOpen(false)}><form className="form-stack" onSubmit={addIssue}><div className="form-field"><label>Action title</label><input required value={issueTitle} onChange={e=>setIssueTitle(e.target.value)} placeholder="What needs to change?"/></div><div className="form-field"><label>Committee</label><select value={issueCommittee} onChange={e=>setIssueCommittee(e.target.value)}>{active.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}</select></div><div className="form-field"><label>Owner</label><input required value={issueOwner} onChange={e=>setIssueOwner(e.target.value)} placeholder="Responsible role or person"/></div><div className="form-field"><label>Due date</label><input required type="date" value={issueDue} onChange={e=>setIssueDue(e.target.value)}/></div><div className="form-field"><label>Priority</label><select value={issuePriority} onChange={e=>setIssuePriority(e.target.value as Issue['priority'])}><option>High</option><option>Medium</option><option>Low</option></select></div><div className="modal-note"><AlertCircle size={16}/> Action is stored locally; no reminder is sent.</div><div className="modal-actions"><button type="button" className="button button-secondary" onClick={()=>setIssueOpen(false)}>Cancel</button><button type="submit" className="button button-primary">Add action</button></div></form></Modal>}
+  </div>;
 }
+function Metric({icon,label,value,foot,tone}:{icon:React.ReactNode;label:string;value:string;foot:string;tone:'green'|'amber'|'red'}){return <div className="metric-card"><div className={'metric-icon '+tone}>{icon}</div><div className="metric-label">{label}</div><div className="metric-value">{value}</div><div className="metric-foot">{foot}</div></div>}
+function Pill({label,tone}:{label:string;tone:'green'|'amber'|'red'|'gray'}){return <span className={'status-pill '+tone}><i/>{label}</span>}
+function Empty({text}:{text:string}){return <div className="empty-state"><CircleHelp size={21}/><span>{text}</span></div>}
+function Modal({title,close,children}:{title:string;close:()=>void;children:React.ReactNode}){return <div className="modal-backdrop" onMouseDown={e=>{if(e.target===e.currentTarget)close()}}><section className="modal" role="dialog" aria-modal="true" aria-label={title}><div className="modal-head"><h2>{title}</h2><button className="icon-button" onClick={close} aria-label="Close"><X size={19}/></button></div>{children}</section></div>}
+function Reliability({icon,title,status,tone,text}:{icon:React.ReactNode;title:string;status:string;tone:'green'|'amber'|'red'|'gray';text:string}){return <div className="panel reliability-card"><div className="reliability-icon">{icon}</div><h3>{title}</h3><Pill label={status} tone={tone}/><p>{text}</p></div>}
+function IssueTable({issues,committees,onResolve}:{issues:Issue[];committees:Committee[];onResolve:(id:string)=>void}){if(!issues.length)return <Empty text="No action items. Add an action when an issue needs an owner."/>;return <div className="table-scroll"><table><thead><tr><th>Action</th><th>Committee</th><th>Owner</th><th>Due date</th><th>Priority</th><th>Status</th><th/></tr></thead><tbody>{issues.map(i=>{const late=i.status!=='Resolved'&&i.dueDate<new Date().toISOString().slice(0,10);return <tr key={i.id}><td><b>{i.title}</b>{late&&<small className="cell-sub overdue-text">Overdue</small>}</td><td>{committees.find(c=>c.id===i.committeeId)?.name||'Unknown'}</td><td>{i.owner}</td><td>{i.dueDate||'—'}</td><td><Pill label={i.priority} tone={i.priority==='High'?'red':i.priority==='Medium'?'amber':'gray'}/></td><td><Pill label={i.status} tone={i.status==='Resolved'?'green':i.status==='In progress'?'amber':'gray'}/></td><td><button className="text-button" onClick={()=>onResolve(i.id)}>{i.status==='Resolved'?'Reopen':'Resolve'}</button></td></tr>})}</tbody></table></div>}
