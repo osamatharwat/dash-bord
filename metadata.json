@@ -1,0 +1,6 @@
+{
+  "name": "ALIENS Whole-Team Intelligence Platform",
+  "description": "Unified organization-wide performance intelligence, committee governance, reporting compliance, and operational analytics for the ALIENS student activity.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
